@@ -1,0 +1,1112 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(glmnet)
+library(nnet)
+library(e1071)
+library(OpenImageR)
+library(dplyr)
+library(image.CannyEdges)
+library(opencv)
+library(ggplot2)
+```
+
+```{r}
+mnist.dat <- read.csv("/Users/tomascarrilho/Desktop/Faculdade/Pattern Recognition/Practical Assignment/mnist.csv")
+#mnist.dat[,1] <- as
+```
+
+```{r}
+as.data.frame(summary(mnist.dat))
+```
+
+
+TEST TO SEE AN IMAGE
+```{r}
+#mnist.dat[2]
+num <-matrix(as.numeric(mnist.dat[4,-1]),nrow=28,ncol=28,byrow=T)
+imageShow(num)
+
+#image_canny_edge_detector(num, s = 2, low_thr = 3, high_thr = 10, accGrad = TRUE)
+#cannyEdges(num, s = 2, low_thr = 3, high_thr = 10, accGrad = TRUE)
+```
+
+#EXERCISE 1
+#Sectio 2.1
+
+Analysis of the dataset in order to predict the class using the majority
+
+```{r}
+#mnist.dat[,1] <- as.factor(mnist.dat[,1])
+
+sum <- summary(as.factor(mnist.dat[,1]))
+print("summary of examples in the data set")
+sum
+cat("\n")
+
+order1 <- order(sum)
+sorted_sum <- sum[order1]
+print("sorted summary")
+sorted_sum
+cat("\n")
+
+maj <-max(sum)
+total <- sum(sum)
+cat("Percentage of correct predictions using majority class ",rev(names(sorted_sum))[1],": ", maj/total*100,"%")
+
+```
+
+Analysis of the features to see whether all of them are important.
+We do this by summing the columns. If the sum = 0 it means that none of the 42k examples as ink in that pixel 
+
+```{r}
+#mnist.dat
+sums <- colSums(mnist.dat[,2:785])
+#sums <- sums[2:785] #we have 0:784, so total = 785
+summary(sums)
+
+```
+
+
+```{r}
+zero_sums <- sums[sums == 0]
+non_zero_sums <- names(sums[sums != 0])
+
+new_data <- mnist.dat[, non_zero_sums]
+
+#as.data.frame(mnist.dat)
+#as.data.frame(new_data)
+cat("Number of features eliminated: ",length(mnist.dat)-length(new_data)-1)
+```
+
+```{r}
+#zero_sums
+zero_sums[1:28]
+cat("\n")
+zero_sums[29:34]
+cat("\n")
+zero_sums[35:38]
+cat("\n")
+zero_sums[39:40]
+cat("\n")
+zero_sums[41:43]
+cat("\n")
+zero_sums[44]
+cat("\n")
+zero_sums[45]
+cat("\n")
+zero_sums[46]
+cat("\n")
+zero_sums[47:48]
+cat("\n")
+zero_sums[49:52]
+cat("\n")
+print("Middle")
+cat("\n")
+zero_sums[53:54]
+cat("\n")
+zero_sums[55:57]
+cat("\n")
+zero_sums[58:59]
+cat("\n")
+zero_sums[60:65]
+cat("\n")
+zero_sums[66:72]
+cat("\n")
+zero_sums[73:76]
+```
+
+
+
+#EXERCISE 2
+#Section 2.2
+
+```{r}
+
+row_sums <- rowSums(mnist.dat[2:785])
+col_names <- c("label", "sum")
+ink <- matrix(c(mnist.dat[,1],row_sums),nrow = length(mnist.dat[,1]), ncol = 2, dimnames = list(NULL,col_names))
+#ink
+
+ink_data = ink[,2]
+mean_value <- mean(ink_data)
+sd_value <- sd(ink_data)
+
+print(paste("Overall Mean: ", mean_value))
+print(paste("Overall Standard deviation: ", sd_value))
+
+cat("\n")
+cat("\n")
+
+#Total number
+#print("Number of digits in each class")
+#result0 <- tapply(ink_data,mnist.dat[,1],length)
+#result0
+#cat("\n")
+#By class
+print("Mean for each class")
+result1 <- tapply(ink_data,mnist.dat[,1],mean)
+#result
+
+order_index1 <- order(result1)
+sorted_result1 <- result1[order_index1]
+sorted_result1
+
+cat("\n")
+print("Standard deviation for each class")
+result2 <- tapply(ink_data,mnist.dat[,1],sd)
+
+order_index2 <- order(result2)
+sorted_result2 <- result2[order_index2]
+sorted_result2
+```
+
+#Multinomial Logit Model
+
+#INK
+```{r}
+#
+#Subtract the mean and divide by the sd used for standardization
+new_ink <- scale(ink_data, center = TRUE, scale = TRUE)
+col_names0 <- c("label", "new_ink")
+data0 <- matrix(c(mnist.dat[,1],new_ink),nrow = length(mnist.dat[,1]), ncol = 2, dimnames = list(NULL,col_names0))
+#data0[,1] <- as.factor(data0[,1])
+#as.data.frame(data0)
+
+ink.multinom0 <- multinom(label ~. , data = data.frame(data0), maxit = 70)
+#length(data0)
+#data0
+ink.multinom.pred0 <- predict(ink.multinom0,data0,type="class")
+conf_m <-table(data0[,1],ink.multinom.pred0)
+conf_m
+
+print(paste("Accuracy:", sum(diag(conf_m))/sum(conf_m)*100,"%"))
+```
+```{r}
+ac18<- (3823+0)/(3823+0+192+0)
+print(paste("Accuracy when comparing 1 and 8:", ac18))
+
+ac38<- (1037+0)/(1037+0+1047+0)
+print(paste("Accuracy when comparing 3 and 8:", ac38))
+
+```
+
+It's clear that this model can much easily distinct 8's from 1's than from 3's. This seems pretty obvious cause 3 and 8 are indeed quite similar, almost has if a 3 was "half" of an 8. This model is not sensitive enough to detect this
+
+Our model doesn't predict any 4,5,8
+
+#EXERCISE 3
+
+This feature will compare the vertical balance on the digit is. It does so by dividing the image into two parts: top and bottom. It calculates the difference
+
+```{r}
+middle <- length(mnist.dat)/2
+end <- length(mnist.dat)
+
+top <- mnist.dat[,1:middle+1]
+bottom_ish <- mnist.dat[,(middle+1):end+1]
+
+
+my_data_frame <- bottom_ish
+subset_size <- 28
+num_subsets <- ncol(my_data_frame) %/% subset_size
+num_col <- ncol(my_data_frame)
+desired_order <- (num_col-subset_size+1):(num_col)
+
+
+for (i in 2:num_subsets){
+    desired_order <- c(desired_order, (num_col-i*subset_size+2):(num_col-(i-1)*subset_size+1))
+}
+
+
+#desired_order
+bottom <- bottom_ish[desired_order]
+
+dif_ish <- top - bottom
+
+row_difs <- rowSums(dif_ish)
+length(row_difs)
+```
+
+```{r}
+#By class
+print("Mean for each class")
+result4 <- tapply(row_difs,mnist.dat[,1],mean)
+#result
+
+order_index4 <- order(result4)
+sorted_result4 <- result4[order_index4]
+sorted_result4
+
+
+result5 <- tapply(row_difs,mnist.dat[,1],sd)
+order_index5 <- order(result5)
+sorted_result5 <- result1[order_index4]
+sorted_result5
+
+```
+
+#EXERCISE 4
+
+#VERTICAL BALANCE
+```{r}
+#Model with vertical balance
+dif <- scale(row_difs, center = TRUE, scale = TRUE)
+col_names21 <- c("label","top_bot")
+data21 <- matrix(c(mnist.dat[,1],dif),nrow = length(mnist.dat[,1]), ncol = 2, dimnames = list(NULL,col_names21))
+#data2[,1] <- as.factor(data2[,1])
+
+ink.multinom21 <- multinom(label ~. , data = data.frame(data21), maxit = 70)
+#length(data1)
+#data1
+ink.multinom.pred21 <- predict(ink.multinom21,data21,type="class")
+conf_m21 <-table(data21[,1],ink.multinom.pred21)
+conf_m21
+
+print(paste("Accuracy:", sum(diag(conf_m21))/sum(conf_m21)))
+```
+
+#INK AND VERTICAL BALANCE 
+```{r}
+#Model with ink and vertical balance
+dif <- scale(row_difs, center = TRUE, scale = TRUE)
+col_names2 <- c("label", "new_ink","top_bot")
+data2 <- matrix(c(mnist.dat[,1],new_ink,dif),nrow = length(mnist.dat[,1]), ncol = 3, dimnames = list(NULL,col_names2))
+#data2[,1] <- as.factor(data2[,1])
+
+ink.multinom2 <- multinom(label ~. , data = data.frame(data2), maxit = 100)
+#length(data1)
+#data1
+ink.multinom.pred2 <- predict(ink.multinom2,data2,type="class")
+conf_m2 <-table(data2[,1],ink.multinom.pred2)
+conf_m2
+
+print(paste("Accuracy:", sum(diag(conf_m2))/sum(conf_m2)))
+```
+
+
+```{r}
+bin_d <- mnist.dat[2:ncol(mnist.dat)]
+
+threshold
+
+bin_d <- as.data.frame(ifelse(bin_d <= threshold, 0, 255))
+#print(bin_d)
+
+bin_m <- as.matrix(bin_d, nrow=28,ncol=28, byrow=T)
+
+middle2 <- length(bin_d)/2
+end2 <- length(bin_d)
+
+top2 <- bin_d[,1:middle2]
+bottom_ish2 <- bin_d[,(middle2):end2]
+
+
+my_data_frame2 <- bottom_ish2
+subset_size2 <- 28
+num_subsets2 <- ncol(my_data_frame2) %/% subset_size2
+num_col2 <- ncol(my_data_frame2)
+desired_order2 <- (num_col2-subset_size2+1):(num_col2)
+
+
+for (i in 2:num_subsets2){
+    desired_order2 <- c(desired_order2, (num_col2-i*subset_size2+2):(num_col2-(i-1)*subset_size2+1))
+}
+
+
+#desired_order
+bottom2 <- bottom_ish2[desired_order2]
+
+dif_ish2 <- top2 - bottom2
+
+row_difs2 <- rowSums(dif_ish2)
+```
+
+
+```{r}
+#By class
+print("Mean for each class")
+result4 <- tapply(row_difs2,mnist.dat[,1],mean)
+
+
+order_index4 <- order(result4)
+sorted_result4 <- result1[order_index4]
+sorted_result4
+result5 <- tapply(row_difs2,mnist.dat[,1],std)
+sorted_result5 <- result1[order_index4]
+sorted_result5
+```
+
+
+```{r}
+dif2 <- scale(row_difs2, center = TRUE, scale = TRUE)
+col_names3 <- c("label", "new_ink","top_bot2")
+data3 <- matrix(c(mnist.dat[,1],new_ink,dif2),nrow = length(mnist.dat[,1]), ncol = 3, dimnames = list(NULL,col_names3))
+data3[,1] <- as.factor(data3[,1])
+
+ink.multinom3 <- multinom(label ~. , data = data.frame(data3), maxit = 1000)
+#length(data1)
+#data1
+ink.multinom.pred3 <- predict(ink.multinom3,data3,type="class")
+conf_m3 <-table(data3[,1],ink.multinom.pred3)
+conf_m3
+
+print(paste("Accuracy:", sum(diag(conf_m3))/sum(conf_m3)))
+```
+
+#EXERCISE 5
+
+```{r}
+mnist.dat <- read.csv("/Users/tomascarrilho/Desktop/Faculdade/Pattern Recognition/Practical Assignment/mnist.csv")
+#as.data.frame(mnist.dat)
+```
+
+```{r}
+#Original
+im1 <- mnist.dat[1,2:785]
+cat("Original",sum(im1))
+cat("\n")
+
+#Replica
+desired_col <- seq(2,784,4)
+im2 <- mnist.dat[1,desired_col]
+cat("Rplica",sum(im2))
+cat("\n")
+im2
+#Down sample image
+im3 <- down_sample_image(as.matrix(mnist.dat[1,2:785]),4)
+cat("Down Sample",sum(im3))
+cat("\n")
+
+#Sum
+start_col <- seq(2, 782, 4)
+
+start_col <- seq(2, 782, 4)
+end_col <- seq(4, 784, 4)
+new_mnist <- matrix(0, nrow = nrow(mnist.dat), ncol = length(start_col))
+
+for (i in seq_along(start_col)) {
+  new_mnist[, i] <- rowSums(mnist.dat[, start_col[i]:(start_col[i] + 3)])
+}
+im4 <- new_mnist[1,]
+cat("Upgrade",sum(im4))
+cat("\n")
+```
+
+```{r}
+num1 <-matrix(as.numeric(im1),nrow=28,ncol=28,byrow=T)
+num2 <-matrix(as.numeric(im2),nrow=28,ncol=7,byrow=T)
+num3 <-matrix(as.numeric(im3),nrow=28,ncol=7,byrow=T)
+num4 <-matrix(as.numeric(im4),nrow=14,ncol=14,byrow=T)
+
+imageShow(num1)
+imageShow(num2)
+imageShow(num3)
+imageShow(num4)
+```
+
+#Resizing the images
+
+#Manually
+Randomly selecting the samples
+```{r}
+samples <- 2:42001
+selected_s <- sample(samples, 5000)
+not_selected_s <- setdiff(samples, selected_s)
+```
+
+Dividing the trainin and testing set
+```{r}
+train <- mnist.dat[selected_s,1:785]
+#train[,1] <- as.factor(train[,1])
+test <- mnist.dat[-selected_s,1:785]
+#test[,1] <- as.factor(test[,1])
+```
+
+```{r}
+#dataset <- down_sample_image(images[1,],4)
+desired_col <- seq(2,784,4)
+
+train_set <- cbind(train[,1],train[,desired_col])
+#train_set[,1] <- as.factor(train_set[,1])
+
+test_set <- cbind(test[,1],test[,desired_col])
+#test_set[,1] <- as.factor(test_set[,1])
+
+#as.data.frame(train_set)
+```
+
+#Down Sample Image
+
+```{r}
+size <-length(train[,1])
+train_set_ish <- array()
+
+for (i in seq(1,size)) {
+  train_set_ish <- rbind(train_set_ish, down_sample_image(as.matrix(train[i,2:785]),4))
+}
+```
+
+```{r}
+train_set <- cbind(train[,1],train_set_ish[2:5001,])
+#as.data.frame(train_set)
+```
+
+```{r}
+image111 <- down_sample_image(as.matrix(train[1,2:785]),factor=4,gaussian_blur=TRUE)
+image112 <- down_sample_image(as.matrix(train[1,2:785]),factor=4,gaussian_blur=FALSE)
+sum(image111)
+sum(image112)
+```
+
+```{r}
+as.data.frame(train[1,2:785])
+as.data.frame(image111)
+as.data.frame(image112)
+```
+
+```{r}
+
+#cat("############") 
+sum(train[1,2:785])
+sum(image111)
+sum(image112)
+#as.data.frame(image111)
+
+
+
+simage111 <-matrix(as.numeric(image111),nrow=28,ncol=7,byrow=T)
+simage112 <-matrix(as.numeric(image112),nrow=28,ncol=7,byrow=T)
+imageShow(simage111)
+imageShow(simage112)
+```
+
+```{r}
+pixel1 <- down_sample_image(as.matrix(train[1,2:785]),2)
+pixel2 <- down_sample_image(as.matrix(train[1,3:785]),2)
+pixel3 <- down_sample_image(as.matrix(train[1,30:785]),2)
+pixel4 <- down_sample_image(as.matrix(train[1,31:785]),2)
+
+new_image <- array()
+for (i in seq(1,196)) {
+  sum <- pixel1[i]+pixel2[i]+pixel3[i]+pixel4[i]
+  new_image <- cbind(sum)
+}
+
+as.data.frame(pixel4)
+```
+
+
+```{r}
+size <-length(test[,1])+1
+test_set_ish <- array()
+
+for (i in seq(1,size)) {
+  test_set_ish <- rbind(test_set_ish, down_sample_image(as.matrix(test[i,2:785]),4))
+}
+```
+
+
+```{r}
+as.data.frame(test_set_ish[1,])
+#as.data.frame(test_set_ish)#[36999:37003,])
+as.data.frame(test[370001,1])
+```{r}
+im0 <- matrix(as.numeric(mnist.dat[1,-1]),nrow=28,ncol=28,byrow=T)
+im1 <- matrix(as.numeric(final_mnist[1,-1]),nrow=14,ncol=14,byrow=T)
+
+#im1 <- matrix(as.numeric(down_sample_image(as.matrix(mnist.dat[1,2:785]),factor=1,gaussian_blur = TRUE,gauss_sigma = 0.8)),nrow=28,ncol=28,byrow=T)
+#im2 <- matrix(as.numeric(final_mnist[1,-1]),nrow=14,ncol=14,byrow=T)
+
+sum(im0)
+sum(im1)
+#num <-matrix(as.numeric(mnist.dat[4,-1]),nrow=28,ncol=28,byrow=T)
+imageShow(im0)
+imageShow(im1)
+
+```
+
+#Summing the pixels
+
+```{r}
+#start_col <- seq(2, 782, 4)
+#end_col <- seq(4, 784, 4)
+#new_mnist <- matrix(0, nrow = nrow(mnist.dat), ncol = length(start_col))
+
+#for (i in seq_along(start_col)) {
+ # new_mnist[, i] <- rowSums(mnist.dat[, start_col[i]:(start_col[i] + 3)])
+#}
+
+
+#col_names1 <- c("label",names(mnist.dat[start_col]))
+#col_names1
+#as.data.frame(new_mnist)
+
+#train_set <- cbind(mnist.dat[selected_s,1], new_mnist[selected_s,])
+#colnames(train_set) <- col_names1
+#train[,1] <- as.factor(train[,1])
+#test_set <- cbind(mnist.dat[-selected_s,1], new_mnist[-selected_s,])
+#colnames(test_set) <- col_names1
+
+#as.data.frame(train_set)
+#as.data.frame(test_set)
+```
+
+```{r}
+mnist.dat <- read.csv("/Users/tomascarrilho/Desktop/Faculdade/Pattern Recognition/Practical Assignment/mnist.csv")
+final_mnist0 <-  read.csv("/Users/tomascarrilho/Desktop/Faculdade/Pattern Recognition/Practical Assignment/final.csv",header = FALSE)
+
+final_mnist <- cbind(mnist.dat[,1], final_mnist0)
+#as.data.frame(final_mnist)
+#sum(final_mnist[,])
+
+```
+
+```{r}
+samples <- 2:42001
+selected_s <- sample(samples, 5000)
+not_selected_s <- setdiff(samples, selected_s)
+
+start_col <- seq(2, 195)
+
+col_names1 <- c("label",names(mnist.dat[start_col]))
+#col_names1
+#as.data.frame(new_mnist)
+
+train_set <- final_mnist[selected_s,]
+#colnames(train_set) <- col_names1
+#train[,1] <- as.factor(train[,1])
+test_set <- final_mnist[-selected_s,]
+#colnames(test_set) <- col_names1
+
+
+#as.data.frame(train_set)
+#as.data.frame(test_set)
+```
+
+
+
+
+#Multinomial Logit Model
+
+
+#Not scaled
+```{r}
+#Logistic Regression
+size1 <- length(train_set[1,])
+# logistic regression with lasso penalty
+l_values = c(0.001)
+
+mnist.glmnet <- cv.glmnet(as.matrix(train_set[,2:size1]),train_set[,1],family="multinomial",type.measure="class")
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+mnist.glmnet0 <- cv.glmnet(as.matrix(train_set[,2:size1]),train_set[,1],family="multinomial",type.measure="class")
+mnist.glmnet0 <- cv.glmnet(as.matrix(train_set[,2:size1]),train_set[,1],family="multinomial",type.measure="class")
+mnist.glmnet0 <- cv.glmnet(as.matrix(train_set[,2:size1]),train_set[,1],family="multinomial",type.measure="class")
+mnist.glmnet0 <- cv.glmnet(as.matrix(train_set[,2:size1]),train_set[,1],family="multinomial",type.measure="class")
+
+```
+
+```{r}
+#result <- cv.glmnet(as.matrix(train_set[,2:size1]),train_set[,1],family="multinomial",type.measure="class")
+
+# Measure execution time
+timing <- system.time({
+  result <- cv.glmnet(as.matrix(train_set[,2:size1]),train_set[,1],family="multinomial",type.measure="class")
+})
+
+# Print the elapsed time
+print(timing[3])
+```
+
+```{r}
+mnist.glmnet$performances
+#plot(mnist.svm.tune$performances)
+```
+
+
+```{r}
+plot(mnist.glmnet)
+
+cat("1se lambda: ",mnist.glmnet$lambda.1se) ##largest value of lambda such that error is within 1 standard error of the minimum
+cat("\n")
+cat("min lambda: ",mnist.glmnet$lambda.min) 
+#value of lambda that gives minimum mean cross validation error.
+```
+```{r}
+#TRAINING
+#mnist.logreg.pred0 <- predict(mnist.glmnet,as.matrix(train_set[,2:197]),s="lambda.1se",type="class")
+```
+
+```{r}
+size2 <- length(test_set[1,])
+mnist.logreg.pred1 <- predict(mnist.glmnet,as.matrix(test_set[,2:size2]),s="lambda.1se",type="class")
+```
+
+```{r}
+size2 <- length(test_set[1,])
+mnist.logreg.pred2 <- predict(mnist.glmnet,as.matrix(test_set[,2:size2]),s="lambda.min",type="class")
+```
+
+```{r}
+#length(mnist.logreg.pred)
+#print("TRAINING")
+#mnist.logreg.pred0 <- predict(mnist.glmnet,newx=as.matrix(train_set),s="lambda.1se",type="class")
+#conf_m4 <-table(train_label,mnist.logreg.pred0)
+#conf_m4
+#print(paste("Accuracy:", sum(diag(conf_m4))/sum(conf_m4)))
+cat("\n")
+#length(test_set[1,])
+#length(mnist.logreg.pred3)
+
+
+print("TESTING SET")
+conf_m5 <-table(test_set[,1],mnist.logreg.pred2)
+
+conf_m5
+
+#print(paste("Accuracy:", (sum(diag(conf_m5)))/sum(conf_m5)))
+print(paste("Accuracy:", sum(diag(conf_m5))/sum(conf_m5)))
+print(mnist.glmnet$lambda.min)
+```
+
+```{r}
+acc1 = conf_m5[1,1]/sum(conf_m5[1,])
+cat("Accuracy for 0: ",acc1," ")
+cat("\n")
+acc2 = conf_m5[2,2]/sum(conf_m5[2,])
+cat("Accuracy for 1: ",acc2)
+cat("\n")
+acc3 = conf_m5[3,3]/sum(conf_m5[3,])
+cat("Accuracy for 2: ",acc3)
+cat("\n")
+acc4 = conf_m5[4,4]/sum(conf_m5[4,])
+cat("Accuracy for 3: ",acc4)
+cat("\n")
+acc5 = conf_m5[5,5]/sum(conf_m5[5,])
+cat("Accuracy for 4: ",acc5)
+cat("\n")
+acc6 = conf_m5[6,6]/sum(conf_m5[6,])
+cat("Accuracy for 5: ",acc6)
+cat("\n")
+acc7 = conf_m5[7,7]/sum(conf_m5[7,])
+cat("Accuracy for 6: ",acc7)
+cat("\n")
+acc8 = conf_m5[8,8]/sum(conf_m5[8,])
+cat("Accuracy for 7: ",acc8)
+cat("\n")
+acc9 = conf_m5[9,9]/sum(conf_m5[9,])
+cat("Accuracy for 8: ",acc9)
+cat("\n")
+acc10 = conf_m5[10,10]/sum(conf_m5[10,])
+cat("Accuracy for 9: ",acc10)
+cat("\n")
+accs<- c(acc1,acc2,acc3,acc4,acc5,acc6,acc7,acc8,acc9,acc10)
+sort(accs)
+```
+
+
+
+
+```{r}
+OUTDATED
+
+
+Selected columns
+1se<-0.8942
+min<-0.8953
+
+Down sample image
+factor =8
+  1se<-0.8282
+  min<-0.8297
+factor = 4
+  1se<-0.
+  min<-0.
+
+Pixel sum
+1se<-0.8935
+min<-0.8954
+
+Final 
+1se<-0.8958
+min<-0.9001
+```
+
+
+#SVM
+
+```{r}
+#mnist.dat
+sums2 <- colSums(train_set[,-1])
+sums2 <- sums2[-1] #we have 0:784, so total = 785
+
+#PRECISO DE DAR NOMES ÀS COLUNAS
+zero_sums2 <- sums2[sums2 == 0]
+#length(zero_sums2)
+non_zero_sums2 <- names(sums2[sums2 != 0])
+#length(non_zero_sums2)
+train.svm <- train_set[, non_zero_sums2]
+test.svm <- test_set[, non_zero_sums2]
+#new_data
+#zero_sums
+#cat("\n")
+#zero_sums[46:76]
+#cat("Number of features eliminated: ",length(mnist.dat)-length(new_data)-1)
+#as.data.frame(train.svm)
+```
+
+
+
+
+```{r}
+columns_zero <- c(12,32,80,88,504,252,280,308,504,764,732)
+#as.data.frame()
+cols <- test[,columns_zero+2]
+#as.data.frame(cols)
+col_sums <- colSums(cols)
+col_sums
+```
+
+
+```{r}
+mnist.svm <- svm(train.svm,as.factor(train_set[,1]))
+```
+
+
+```{r}
+svm.pred <- predict(mnist.svm,as.matrix(test.svm))
+#coef_values(svm.pred)
+```
+
+
+```{r}
+#length(svm.pred)
+print("TESTING SET")
+conf_m6 <-table(test_set[,1],svm.pred)
+
+#conf_m6
+#sum(conf_m6)
+#print(paste("Accuracy:", (sum(diag(conf_m5)))/sum(conf_m5)))
+print(paste("Accuracy:", sum(diag(conf_m6))/sum(conf_m6)))
+```
+```{r}
+Manually:
+0.9288
+
+Down sample image
+factor = 8
+0.8866
+factor = 4
+
+
+Sum:
+0.9322
+
+Final 
+0.9319
+
+```
+
+Manually:
+  0.893621621621622
+
+Down sample image:
+
+
+Sum:
+
+```{r}
+costs = seq(1,10,by=10)
+costs
+```
+
+
+escolher o melhor kernel (radial)
+fazer tunning dos parametros (gama)
+
+
+
+```{r}
+gammas = seq(0.001,0.009,by=0.001)
+ mnist.svm.tune <- tune.svm(train.svm,as.factor(train_set[,1]),kernel = "radial",cost=6, gamma=gammas)
+```
+
+```{r}
+timing1 <- system.time({
+  result <- tune.svm(train.svm,as.factor(train_set[,1]),cost=1:10)
+})
+
+# Print the elapsed time
+print(timing1[3])
+```
+
+
+
+```{r}
+result <- tune.svm(train.svm,as.factor(train_set[,1]),cost=1:10)
+
+# Measure execution time
+timing <- system.time({
+  result <- tune.svm(train.svm,as.factor(train_set[,1]),cost=1:10)
+})
+
+# Print the elapsed time
+print(timing[3])
+```
+
+
+
+
+```{r}
+plot(mnist.svm.tune$performances$error)
+```
+
+```{r}
+mnist.svm.tuned <- svm(train.svm,as.factor(train_set[,1]),cost=6,gamma=0.004)
+```
+
+
+```{r}
+svm.pred.tuned <- predict(mnist.svm.tuned,test.svm)
+#coef_values(svm.pred)
+```
+
+
+```{r}
+#length(svm.pred)
+print("TESTING SET")
+conf_m7 <-table(test_set[,1],svm.pred.tuned)
+
+conf_m7
+
+#print(paste("Accuracy:", (sum(diag(conf_m5)))/sum(conf_m5)))
+print(paste("Accuracy:", sum(diag(conf_m7))/sum(conf_m7)))
+```
+```{r}
+
+acc1 = conf_m7[1,1]/sum(conf_m7[1,])
+cat("Accuracy for 0: ",acc1," ")
+cat("\n")
+acc2 = conf_m7[2,2]/sum(conf_m7[2,])
+cat("Accuracy for 1: ",acc2)
+cat("\n")
+acc3 = conf_m7[3,3]/sum(conf_m7[3,])
+cat("Accuracy for 2: ",acc3)
+cat("\n")
+acc4 = conf_m7[4,4]/sum(conf_m7[4,])
+cat("Accuracy for 3: ",acc4)
+cat("\n")
+acc5 = conf_m7[5,5]/sum(conf_m7[5,])
+cat("Accuracy for 4: ",acc5)
+cat("\n")
+acc6 = conf_m7[6,6]/sum(conf_m7[6,])
+cat("Accuracy for 5: ",acc6)
+cat("\n")
+acc7 = conf_m7[7,7]/sum(conf_m7[7,])
+cat("Accuracy for 6: ",acc7)
+cat("\n")
+acc8 = conf_m7[8,8]/sum(conf_m7[8,])
+cat("Accuracy for 7: ",acc8)
+cat("\n")
+acc9 = conf_m7[9,9]/sum(conf_m7[9,])
+cat("Accuracy for 8: ",acc9)
+cat("\n")
+acc10 = conf_m7[10,10]/sum(conf_m7[10,])
+cat("Accuracy for 9: ",acc10)
+cat("\n")
+accs<- c(acc1,acc2,acc3,acc4,acc5,acc6,acc7,acc8,acc9,acc10)
+sort(accs)
+
+```
+
+
+```{r}
+mlr_correct <- test_set[test_set[,1]==mnist.logreg.pred2,1]
+sum(diag(conf_m5))
+37000-length(mlr_correct)
+```
+
+
+```{r}
+svm_correct <- test_set[test_set[,1]==svm.pred.tuned,1]
+length(svm_correct)
+37000-sum(diag(conf_m7))
+```
+
+
+```{r}
+mlr_c_svm_c <- length(test_set[test_set[,1]==mnist.logreg.pred2 & test_set[,1]==svm.pred.tuned,1])
+mlr_c_svm_i <- length(test_set[test_set[,1]==mnist.logreg.pred2 & test_set[,1]!=svm.pred.tuned,1])
+
+mlr_i_svm_c <- length(test_set[test_set[,1]!=mnist.logreg.pred2 & test_set[,1]==svm.pred.tuned,1])
+mlr_i_svm_i <- length(test_set[test_set[,1]!=mnist.logreg.pred2 & test_set[,1]!=svm.pred.tuned,1])
+```
+
+
+```{r}
+cat("MLR C, SVM C",mlr_c_svm_c)
+cat("\n")
+cat("MLR C, SVM I",mlr_c_svm_i)
+cat("\n")
+cat("MLR I, SVM C",mlr_i_svm_c)
+cat("\n")
+cat("MLR I, SVM I",mlr_i_svm_i)
+```
+
+```{r}
+# Assuming y_test, predictions_svm, and predictions_logistic are defined as:
+# - y_test: true labels for the test set
+# - predictions_svm: predictions from the SVM model
+# - predictions_logistic: predictions from the logistic regression model
+
+# Binary representation of correctness of predictions
+#correct_svm <- predictions_svm == y_test
+##correct_logistic <- predictions_logistic == y_test
+
+# Constructing the 2x2 contingency table
+# [model1 correct, model2 incorrect]
+# [model1 incorrect, model2 correct]
+contingency_table <- matrix(c(
+  mlr_c_svm_c,
+  mlr_c_svm_i,
+  mlr_i_svm_c,
+  mlr_i_svm_i 
+), nrow = 2, byrow = TRUE)
+contingency_table
+```
+
+
+```{r}
+# Run McNemar's test
+result <- mcnemar.test(contingency_table, correct = FALSE)  # Use exact = FALSE for large samples
+cat("McNemar's Test Statistic:", result$statistic, "\n")
+cat("p-value:", result$p.value, "\n")
+
+# Interpret the p-value
+if (result$p.value < 0.05) {
+  cat("There is a significant statistical difference between the classifiers.\n")
+} else {
+  cat("There is no significant statistical difference between the classifiers.\n")
+}
+```
+
+
+```{r}
+xx <- ((2207-838)^2)/(2207+838)
+xx
+```
+
+
+
+```{r}
+success_group1 <- mlr_i_svm_c  # Number of successes in group 1
+n1 <- length(test_set[,1])         # Total observations in group 1
+
+success_group2 <- mlr_c_svm_i  # Number of successes in group 2
+n2 <- n1         # Total observations in group 2
+
+# Perform z-proportion test
+prop_test_result <- prop.test(c(success_group1, success_group2), c(n1, n2))
+
+# Display the test result
+print(prop_test_result)
+```
+```{r}
+# Assuming you have vectors of performance metrics for each model
+model1 <- c(0.85, 0.88, 0.82, 0.90, 0.87)
+model2 <- c(0.82, 0.84, 0.78, 0.88, 0.85)
+
+# Paired t-test
+t_test_result <- t.test(model1, model2, paired = TRUE)
+
+# Display the result
+print(t_test_result)
+```
+
+
+
+
+```{r}
+Manually:
+0.9351
+
+Down sample image
+factor = 8
+0.8988
+factor = 4
+
+Sum: confirmar que o custo = 6 é efetivamente o melhor
+0.9388
+
+Final
+0.9394
+Manually:
+0.903297297297297
+
+Down sample image:
+
+
+Sum:
+```
+
+
+
+```{r}
+print("TRAINING SET")
+#length(svm.pred)
+svm.pred.tuned1 <- predict(mnist.svm.tuned,train.svm)
+
+conf_m8 <-table(train_set[,1],svm.pred.tuned1)
+
+conf_m8
+
+#print(paste("Accuracy:", (sum(diag(conf_m5)))/sum(conf_m5)))
+print(paste("Accuracy:", sum(diag(conf_m8))/sum(conf_m8)))
+```
+
+```{r}
+Manually:
+0.9994
+
+Down sample image
+factor = 8
+0.9876
+factor = 4
+
+Sum:
+0.9956
+
+Manually:
+0.9934
+
+Down sample image:
+
+
+Sum:
+```
+
+
+
+
